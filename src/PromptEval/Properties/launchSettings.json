@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "PromptEval": {
+      "commandName": "Project"
+    },
+    "Container (Dockerfile)": {
+      "commandName": "Docker"
+    }
+  }
+}
