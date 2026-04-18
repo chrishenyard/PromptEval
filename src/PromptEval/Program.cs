@@ -14,11 +14,32 @@ public class Program
 {
     public static async Task Main(string[] args)
     {
+        Log.Logger = new LoggerConfiguration()
+            .ReadFrom.Configuration(
+                new ConfigurationBuilder()
+                    .SetBasePath(Directory.GetCurrentDirectory())
+                    .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
+                    .AddJsonFile(
+                        $"appsettings.{Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT") ?? Environments.Production}.json",
+                        optional: true,
+                        reloadOnChange: true)
+                    .AddUserSecrets<Program>(optional: false)
+                    .AddEnvironmentVariables()
+                    .Build())
+            .CreateLogger();
+
         try
         {
             Log.Information("Starting console host");
 
             using IHost host = Host.CreateDefaultBuilder(args)
+                .UseSerilog((context, services, loggerConfiguration) =>
+                {
+                    loggerConfiguration
+                        .ReadFrom.Configuration(context.Configuration)
+                        .ReadFrom.Services(services)
+                        .Enrich.FromLogContext();
+                })
                 .ConfigureAppConfiguration((context, config) =>
                 {
                     var env = context.HostingEnvironment;
@@ -29,7 +50,7 @@ public class Program
                         $"appsettings.{env.EnvironmentName}.json",
                         optional: true,
                         reloadOnChange: true);
-                    config.AddUserSecrets<Program>();
+                    config.AddUserSecrets<Program>(optional: true);
                     config.AddEnvironmentVariables();
 
                     if (args.Length > 0)
@@ -37,21 +58,16 @@ public class Program
                         config.AddCommandLine(args);
                     }
                 })
-                .UseSerilog((context, services, loggerConfiguration) =>
-                {
-                    loggerConfiguration
-                        .ReadFrom.Configuration(context.Configuration)
-                        .ReadFrom.Services(services)
-                        .Enrich.FromLogContext();
-                })
                 .ConfigureServices((context, services) =>
                 {
                     services
                         .AddOptions<KernelSettings>()
                         .Bind(context.Configuration.GetSection("KernelSettings"))
+                        .Validate(settings => !string.IsNullOrWhiteSpace(settings.ServiceType), "KernelSettings:ServiceType is required.")
+                        .Validate(settings => !string.IsNullOrWhiteSpace(settings.ModelId), "KernelSettings:ModelId is required.")
                         .ValidateOnStart();
 
-                    services.AddTransient(sp =>
+                    services.AddSingleton(sp =>
                     {
                         var kernelSettings = sp
                             .GetRequiredService<IOptions<KernelSettings>>()
@@ -63,7 +79,6 @@ public class Program
                         {
                             logging.ClearProviders();
                             logging.AddSerilog(dispose: false);
-                            logging.SetMinimumLevel(LogLevel.Information).AddDebug();
                         });
 
                         kernelBuilder.Services.AddChatCompletionService(kernelSettings);

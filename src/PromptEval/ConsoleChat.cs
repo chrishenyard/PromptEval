@@ -1,91 +1,98 @@
 ﻿using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
-using Microsoft.SemanticKernel.Connectors.OpenAI;
 using System.Text;
 
 namespace PromptEval;
 
 /// <summary>
-/// This is the main application service.
-/// This takes console input, then sends it to the configured AI service, and then prints the response.
-/// All conversation history is maintained in the chat history.
+/// Interactive console chat service.
+/// Reads user input, sends it to the configured chat completion service,
+/// streams the assistant response back to the console, and maintains chat history.
 /// </summary>
-internal class ConsoleChat(Kernel kernel, IHostApplicationLifetime lifeTime) : IHostedService
+internal sealed class ConsoleChat(
+    Kernel kernel,
+    IHostApplicationLifetime lifeTime,
+    ILogger<ConsoleChat> logger) : IHostedService
 {
     private readonly Kernel _kernel = kernel;
     private readonly IHostApplicationLifetime _lifeTime = lifeTime;
+    private readonly ILogger<ConsoleChat> _logger = logger;
 
-    /// <summary>
-    /// Start the service.
-    /// </summary>
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        Task.Run(() => ExecuteAsync(cancellationToken), cancellationToken);
+        _ = Task.Run(() => ExecuteAsync(cancellationToken), cancellationToken);
         return Task.CompletedTask;
     }
 
-    /// <summary>
-    /// Stop a running service.
-    /// </summary>
-    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    public Task StopAsync(CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("Console chat service is stopping.");
+        return Task.CompletedTask;
+    }
 
-    /// <summary>
-    /// The main execution loop. It will use any of the available plugins to perform actions
-    /// </summary>
     private async Task ExecuteAsync(CancellationToken cancellationToken)
     {
-        ChatHistory chatMessages = [];
+        var chatMessages = new ChatHistory();
         chatMessages.AddSystemMessage("Reply in plain natural language. Do not output JSON unless explicitly requested.");
 
-        IChatCompletionService chatCompletionService = _kernel.GetRequiredService<IChatCompletionService>();
+        var chatCompletionService = _kernel.GetRequiredService<IChatCompletionService>();
 
-        // Loop till we are cancelled
+        WriteBanner();
+
         while (!cancellationToken.IsCancellationRequested)
         {
             try
             {
-                // Get user input
+                Console.WriteLine();
                 Console.Write("User > ");
+
                 var userInput = Console.ReadLine();
+
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
 
                 if (string.IsNullOrWhiteSpace(userInput))
                 {
                     continue;
                 }
 
+                userInput = userInput.Trim();
+
+                if (IsExitCommand(userInput))
+                {
+                    _logger.LogInformation("User requested application shutdown.");
+                    Console.WriteLine("Goodbye.");
+                    _lifeTime.StopApplication();
+                    break;
+                }
+
                 chatMessages.AddUserMessage(userInput);
 
-                // Get the chat completions
-                OpenAIPromptExecutionSettings openAIPromptExecutionSettings = new()
-                {
-                    FunctionChoiceBehavior = FunctionChoiceBehavior.None()
-                };
+                Console.Write("Assistant > ");
 
-                IAsyncEnumerable<StreamingChatMessageContent> result =
-                    chatCompletionService.GetStreamingChatMessageContentsAsync(
+                var assistantText = new StringBuilder();
+                var wroteAnyContent = false;
+
+                await foreach (var content in chatCompletionService
+                    .GetStreamingChatMessageContentsAsync(
                         chatMessages,
                         executionSettings: null,
                         kernel: _kernel,
-                        cancellationToken: cancellationToken);
-
-                // Print and collect a single assistant message
-                var assistantText = new StringBuilder();
-                var printedPrefix = false;
-
-                await foreach (var content in result.WithCancellation(cancellationToken))
+                        cancellationToken: cancellationToken)
+                    .WithCancellation(cancellationToken))
                 {
-                    if (!printedPrefix && content.Role.HasValue)
+                    if (string.IsNullOrEmpty(content.Content))
                     {
-                        Console.Write("Assistant > ");
-                        printedPrefix = true;
+                        continue;
                     }
 
-                    if (!string.IsNullOrEmpty(content.Content))
-                    {
-                        Console.Write(content.Content);
-                        assistantText.Append(content.Content);
-                    }
+                    Console.Write(content.Content);
+                    assistantText.Append(content.Content);
+                    wroteAnyContent = true;
                 }
 
                 Console.WriteLine();
@@ -94,11 +101,35 @@ internal class ConsoleChat(Kernel kernel, IHostApplicationLifetime lifeTime) : I
                 {
                     chatMessages.AddAssistantMessage(assistantText.ToString());
                 }
+                else if (!wroteAnyContent)
+                {
+                    Console.WriteLine("(No response)");
+                    _logger.LogWarning("The assistant returned no content.");
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogInformation("Console chat loop cancelled.");
+                break;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error: {ex.Message}");
+                Console.WriteLine();
+                Console.WriteLine("Assistant > Sorry, something went wrong.");
+                _logger.LogError(ex, "Unhandled exception in chat loop.");
             }
         }
+    }
+
+    private static bool IsExitCommand(string input) =>
+        input.Equals("exit", StringComparison.OrdinalIgnoreCase) ||
+        input.Equals("quit", StringComparison.OrdinalIgnoreCase) ||
+        input.Equals("q", StringComparison.OrdinalIgnoreCase);
+
+    private static void WriteBanner()
+    {
+        Console.WriteLine("Interactive chat started.");
+        Console.WriteLine("Type your message and press Enter.");
+        Console.WriteLine("Type 'exit' or 'quit' to close the application.");
     }
 }

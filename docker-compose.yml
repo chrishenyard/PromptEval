@@ -1,18 +1,4 @@
 services:
-  prompteval:
-    image: ${DOCKER_REGISTRY-}prompteval:${VERSION}
-    build:
-      context: ./src
-      dockerfile: PromptEval/Dockerfile
-      args:
-        - AUTHORS=${AUTHORS}
-        - VERSION=${VERSION}
-        - TITLE=${TITLE}
-        - DESCRIPTION=${DESCRIPTION}
-        - BUILD_DATE=${BUILD_DATE}
-    networks:
-      - prompt_eval_network
-
   ollama:
     image: ollama/ollama
     container_name: ollama
