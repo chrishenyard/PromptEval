@@ -27,6 +27,10 @@ internal sealed class ConsoleChat(
                 _ = Task.Run(() => ChatSession.ExecuteChatSessionAsync(
                     _kernel, _lifeTime, _logger, cancellationToken), cancellationToken);
                 break;
+            case ChatTypes.PromptEvaluation:
+                _ = Task.Run(() => PromptEvaluation.ExecutePromptEvaluationAsync(
+                    _kernel, _lifeTime, _logger, cancellationToken), cancellationToken);
+                break;
             default:
                 _logger.LogError("Unsupported chat type: {ChatType}", _appSettings.ChatType);
                 _lifeTime.StopApplication();

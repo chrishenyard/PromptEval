@@ -3,25 +3,56 @@ using Microsoft.Extensions.Logging;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
 using Spectre.Console;
+using System.Collections.Frozen;
 using System.Text;
 
 namespace PromptEval.ChatStrategies;
 
-/// <summary>
-/// Interactive console chat service.
-/// Reads user input, sends it to the configured chat completion service,
-/// streams the assistant response back to the console, and maintains chat history.
-/// </summary>
-internal class ChatSession
+internal class PromptEvaluation
 {
-    public static async Task ExecuteChatSessionAsync(
+    private readonly FrozenDictionary<string, string> _prompts = FrozenDictionary.ToFrozenDictionary<string, string>(new Dictionary<string, string>
+    {
+        ["simple"] = "Please provide a solution to the following task: {task}",
+        ["detailed"] = "Please provide a detailed solution to the following problem, including step-by-step reasoning: {problem}"
+    });
+
+    private static string GenerateDataset() =>
+    @"
+    Generate an evaluation dataset for a prompt evaluation. The dataset will be used to evaluate prompts that generate Python, JSON, or Regex specifically for AWS-related tasks. Generate an array of JSON objects, each representing task that requires Python, JSON, or a Regex to complete.
+
+    Example output:
+    ```json
+    [
+      {
+        ""task\"": ""Description of task"",
+      },
+      ...additional
+    ]
+    ```
+
+    * Focus on tasks that can be solved by writing a single Python function, a single JSON object, or a single regex
+    * Focus on tasks that do not require writing much code
+
+    Please generate 3 objects.
+    ";
+
+    public static async Task ExecutePromptEvaluationAsync(
+        Kernel kernel,
+        IHostApplicationLifetime lifetime,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        await ExecuteDatasetAsync(kernel, lifetime, logger, cancellationToken);
+    }
+
+    public static async Task ExecuteDatasetAsync(
         Kernel kernel,
         IHostApplicationLifetime lifetime,
         ILogger logger,
         CancellationToken cancellationToken)
     {
         var chatMessages = new ChatHistory();
-        chatMessages.AddSystemMessage("Reply in plain natural language. Do not output JSON unless explicitly requested.");
+        chatMessages.AddSystemMessage("You are a helpful assistant.");
 
         var chatCompletionService = kernel.GetRequiredService<IChatCompletionService>();
 
@@ -43,7 +74,7 @@ internal class ChatSession
 
                 if (string.IsNullOrWhiteSpace(userInput))
                 {
-                    continue;
+                    userInput = string.Empty;
                 }
 
                 userInput = userInput.Trim();
@@ -56,6 +87,7 @@ internal class ChatSession
                     break;
                 }
 
+                userInput = GenerateDataset();
                 chatMessages.AddUserMessage(userInput);
 
                 var assistantText = new StringBuilder();
