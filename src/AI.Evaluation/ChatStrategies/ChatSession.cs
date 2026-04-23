@@ -14,7 +14,13 @@ namespace PromptEval.ChatStrategies;
 /// </summary>
 internal class ChatSession
 {
-    private const int MaxMessagesAfterSystem = 20;
+    private const int MaxContextTokens = 128_000;
+    private const double ResetThresholdRatio = 0.85;
+    private const int ApproxCharsPerToken = 4;
+    private const int EstimatedTokensPerMessageOverhead = 8;
+
+    private const string SystemPrompt =
+        "Reply in plain natural language. Do not output JSON unless explicitly requested.";
 
     public static async Task ExecuteChatSessionAsync(
         Kernel kernel,
@@ -22,21 +28,23 @@ internal class ChatSession
         ILogger logger,
         CancellationToken cancellationToken)
     {
-        var chatMessages = new ChatHistory();
-        chatMessages.AddSystemMessage("Reply in plain natural language. Do not output JSON unless explicitly requested.");
-
+        var chatMessages = CreateInitializedHistory();
         var chatCompletionService = kernel.GetRequiredService<IChatCompletionService>();
 
         SpectreConsole.WriteBanner();
+        AnsiConsole.Write(new Text(
+            $"Token limit: {MaxContextTokens:n0}. If usage reaches {(int)(ResetThresholdRatio * 100)}% of max, history will be reset.",
+            SpectreConsole.InfoStyle));
+        AnsiConsole.WriteLine();
 
         while (!cancellationToken.IsCancellationRequested)
         {
             try
             {
                 AnsiConsole.WriteLine();
+                WriteTokenUsage(chatMessages);
                 AnsiConsole.Write(new Markup("[bold cyan]User > [/]"));
 
-                // Cancellation-aware input (avoids blocking on shutdown).
                 var userInput = await Console.In.ReadLineAsync(cancellationToken);
 
                 if (string.IsNullOrWhiteSpace(userInput))
@@ -54,8 +62,24 @@ internal class ChatSession
                     break;
                 }
 
+                if (SpectreConsole.IsResetCommand(userInput))
+                {
+                    ResetChatHistory(chatMessages, logger, "User requested chat history reset.");
+                    continue;
+                }
+
                 chatMessages.AddUserMessage(userInput);
-                TrimChatHistory(chatMessages, MaxMessagesAfterSystem);
+
+                if (ShouldResetHistory(chatMessages))
+                {
+                    AnsiConsole.Write(new Text(
+                        "Token threshold reached. Chat history was cleared before processing this turn.",
+                        SpectreConsole.InfoStyle));
+                    AnsiConsole.WriteLine();
+
+                    ResetChatHistory(chatMessages, logger, "Token threshold reached before assistant completion.");
+                    chatMessages.AddUserMessage(userInput);
+                }
 
                 var assistantText = new StringBuilder();
                 string? firstChunk = null;
@@ -89,8 +113,7 @@ internal class ChatSession
 
                 if (!string.IsNullOrEmpty(firstChunk))
                 {
-                    AnsiConsole.Write(new Text(firstChunk, SpectreConsole.AssistantStyle));
-                    assistantText.Append(firstChunk);
+                    WriteAssistantChunk(assistantText, firstChunk);
 
                     while (await enumerator.MoveNextAsync())
                     {
@@ -101,23 +124,28 @@ internal class ChatSession
                             continue;
                         }
 
-                        AnsiConsole.Write(new Text(content.Content, SpectreConsole.AssistantStyle));
-                        assistantText.Append(content.Content);
+                        WriteAssistantChunk(assistantText, content.Content);
                     }
 
                     AnsiConsole.WriteLine();
                     chatMessages.AddAssistantMessage(assistantText.ToString());
-                    TrimChatHistory(chatMessages, MaxMessagesAfterSystem);
                 }
                 else
                 {
                     AnsiConsole.Write(new Text("(No response)", SpectreConsole.InfoStyle));
                     AnsiConsole.WriteLine();
                     logger.LogWarning("The assistant returned no content.");
-
-                    // Keep turn structure consistent.
                     chatMessages.AddAssistantMessage(string.Empty);
-                    TrimChatHistory(chatMessages, MaxMessagesAfterSystem);
+                }
+
+                if (ShouldResetHistory(chatMessages))
+                {
+                    AnsiConsole.Write(new Text(
+                        "Token threshold reached after response. Chat history has been cleared.",
+                        SpectreConsole.InfoStyle));
+                    AnsiConsole.WriteLine();
+
+                    ResetChatHistory(chatMessages, logger, "Token threshold reached after assistant completion.");
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -137,13 +165,129 @@ internal class ChatSession
         }
     }
 
-    private static void TrimChatHistory(ChatHistory chatMessages, int maxMessagesAfterSystem)
+    private static void WriteAssistantChunk(StringBuilder assistantText, string chunk)
     {
-        const int systemMessagesToKeep = 1;
-
-        while (chatMessages.Count > systemMessagesToKeep + maxMessagesAfterSystem)
+        var normalizedChunk = NormalizeChunkBoundary(assistantText, chunk);
+        if (normalizedChunk.Length == 0)
         {
-            chatMessages.RemoveAt(systemMessagesToKeep);
+            return;
         }
+
+        AnsiConsole.Write(new Text(normalizedChunk, SpectreConsole.AssistantStyle));
+        assistantText.Append(normalizedChunk);
+    }
+
+    private static string NormalizeChunkBoundary(StringBuilder assistantText, string chunk)
+    {
+        if (assistantText.Length == 0 || string.IsNullOrEmpty(chunk))
+        {
+            return chunk;
+        }
+
+        var previousChar = assistantText[^1];
+        var nextChar = chunk[0];
+
+        if (ShouldInsertSpace(previousChar, nextChar))
+        {
+            return " " + chunk;
+        }
+
+        return chunk;
+    }
+
+    private static bool ShouldInsertSpace(char previousChar, char nextChar)
+    {
+        if (char.IsWhiteSpace(previousChar) || char.IsWhiteSpace(nextChar))
+        {
+            return false;
+        }
+
+        // No space if previous appears to terminate a sentence.
+        if (previousChar is '.' or '!' or '?')
+        {
+            return false;
+        }
+
+        // Characters that should not have a preceding space.
+        if (".,!?;:)]}\"'".Contains(nextChar))
+        {
+            return false;
+        }
+
+        // Characters that should not have a trailing space before next token.
+        if ("([{/'\"".Contains(previousChar))
+        {
+            return false;
+        }
+
+        // Most common missing-space case.
+        if (char.IsLetterOrDigit(previousChar) && char.IsLetterOrDigit(nextChar))
+        {
+            return true;
+        }
+
+        // Typical punctuation spacing in natural language.
+        if ((previousChar is ',' or ';' or ':') && char.IsLetterOrDigit(nextChar))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private static ChatHistory CreateInitializedHistory()
+    {
+        var chatMessages = new ChatHistory();
+        chatMessages.AddSystemMessage(SystemPrompt);
+        chatMessages.AddUserMessage(
+            $"Maximum available context tokens: {MaxContextTokens:n0}. " +
+            $"When usage reaches {(int)(ResetThresholdRatio * 100)}% of this limit, history will be lost.");
+        return chatMessages;
+    }
+
+    private static void ResetChatHistory(ChatHistory chatMessages, ILogger logger, string reason)
+    {
+        chatMessages.Clear();
+        chatMessages.AddSystemMessage(SystemPrompt);
+        chatMessages.AddUserMessage(
+            $"Maximum available context tokens: {MaxContextTokens:n0}. " +
+            $"When usage reaches {(int)(ResetThresholdRatio * 100)}% of this limit, history will be lost.");
+
+        logger.LogInformation("{Reason}", reason);
+
+        AnsiConsole.Write(new Text("Chat history reset.", SpectreConsole.InfoStyle));
+        AnsiConsole.WriteLine();
+    }
+
+    private static bool ShouldResetHistory(ChatHistory chatMessages)
+    {
+        var usedTokens = EstimateChatHistoryTokens(chatMessages);
+        var thresholdTokens = (int)(MaxContextTokens * ResetThresholdRatio);
+        return usedTokens >= thresholdTokens;
+    }
+
+    private static void WriteTokenUsage(ChatHistory chatMessages)
+    {
+        var usedTokens = EstimateChatHistoryTokens(chatMessages);
+        var percent = (double)usedTokens / MaxContextTokens * 100;
+
+        AnsiConsole.Write(new Text(
+            $"Token usage: ~{usedTokens:n0}/{MaxContextTokens:n0} ({percent:F1}%)",
+            SpectreConsole.InfoStyle));
+        AnsiConsole.WriteLine();
+    }
+
+    private static int EstimateChatHistoryTokens(ChatHistory chatMessages)
+    {
+        var total = 0;
+
+        foreach (var message in chatMessages)
+        {
+            var text = message.Content ?? string.Empty;
+            total += EstimatedTokensPerMessageOverhead;
+            total += (int)Math.Ceiling(text.Length / (double)ApproxCharsPerToken);
+        }
+
+        return total;
     }
 }

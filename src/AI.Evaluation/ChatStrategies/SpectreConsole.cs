@@ -13,6 +13,11 @@ internal static class SpectreConsole
         input.Equals("quit", StringComparison.OrdinalIgnoreCase) ||
         input.Equals("q", StringComparison.OrdinalIgnoreCase);
 
+    public static bool IsResetCommand(string input) =>
+        input.Equals("reset", StringComparison.OrdinalIgnoreCase) ||
+        input.Equals("/reset", StringComparison.OrdinalIgnoreCase) ||
+        input.Equals("clear", StringComparison.OrdinalIgnoreCase);
+
     public static void WriteBanner()
     {
         var rule = new Rule("[bold white]Interactive Chat[/]");
@@ -22,6 +27,8 @@ internal static class SpectreConsole
         AnsiConsole.Write(new Text("Type your message and press Enter.", SpectreConsole.BannerStyle));
         AnsiConsole.WriteLine();
         AnsiConsole.Write(new Text("Type 'exit' or 'quit' to close the application.", SpectreConsole.BannerStyle));
+        AnsiConsole.WriteLine();
+        AnsiConsole.Write(new Text("Type 'reset' to clear chat history.", SpectreConsole.BannerStyle));
         AnsiConsole.WriteLine();
     }
 }
