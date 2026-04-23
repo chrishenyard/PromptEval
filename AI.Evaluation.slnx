@@ -4,5 +4,5 @@
     <File Path="docker-compose.yml" />
     <File Path="src/Directory.Packages.props" />
   </Folder>
-  <Project Path="src/PromptEval/PromptEval.csproj" />
+  <Project Path="src/AI.Evaluation/AI.Evaluation.csproj" />
 </Solution>

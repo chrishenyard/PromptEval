@@ -56,7 +56,7 @@ internal class PromptEvaluation
 
         var chatCompletionService = kernel.GetRequiredService<IChatCompletionService>();
 
-        ConsoleHelpers.WriteBanner();
+        SpectreConsole.WriteBanner();
 
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -79,7 +79,7 @@ internal class PromptEvaluation
 
                 userInput = userInput.Trim();
 
-                if (ConsoleHelpers.IsExitCommand(userInput))
+                if (SpectreConsole.IsExitCommand(userInput))
                 {
                     logger.LogInformation("User requested application shutdown.");
                     AnsiConsole.MarkupLine("[grey]Goodbye.[/]");
@@ -122,7 +122,7 @@ internal class PromptEvaluation
 
                 if (!string.IsNullOrEmpty(firstChunk))
                 {
-                    AnsiConsole.Write(new Text(firstChunk, ConsoleHelpers.AssistantStyle));
+                    AnsiConsole.Write(new Text(firstChunk, SpectreConsole.AssistantStyle));
                     assistantText.Append(firstChunk);
 
                     while (await enumerator.MoveNextAsync())
@@ -134,7 +134,7 @@ internal class PromptEvaluation
                             continue;
                         }
 
-                        AnsiConsole.Write(new Text(content.Content, ConsoleHelpers.AssistantStyle));
+                        AnsiConsole.Write(new Text(content.Content, SpectreConsole.AssistantStyle));
                         assistantText.Append(content.Content);
                     }
 
@@ -143,7 +143,7 @@ internal class PromptEvaluation
                 }
                 else
                 {
-                    AnsiConsole.Write(new Text("(No response)", ConsoleHelpers.InfoStyle));
+                    AnsiConsole.Write(new Text("(No response)", SpectreConsole.InfoStyle));
                     AnsiConsole.WriteLine();
                     logger.LogWarning("The assistant returned no content.");
                 }
@@ -157,7 +157,7 @@ internal class PromptEvaluation
             {
                 AnsiConsole.WriteLine();
                 AnsiConsole.Write(new Markup("[bold springgreen3]Assistant > [/]"));
-                AnsiConsole.Write(new Text("Sorry, something went wrong.", ConsoleHelpers.AssistantStyle));
+                AnsiConsole.Write(new Text("Sorry, something went wrong.", SpectreConsole.AssistantStyle));
                 AnsiConsole.WriteLine();
 
                 logger.LogError(ex, "Unhandled exception in chat loop.");
