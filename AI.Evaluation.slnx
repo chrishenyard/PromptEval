@@ -3,6 +3,7 @@
     <File Path=".env" />
     <File Path="docker-compose.yml" />
     <File Path="LICENSE" />
+    <File Path="README.md" />
     <File Path="src/Directory.Packages.props" />
   </Folder>
   <Project Path="src/AI.Evaluation.Test/AI.Evaluation.Test.csproj" Id="a14bb3fa-ff5f-4544-b75b-e9ef6c5528c9" />
