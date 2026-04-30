@@ -12,7 +12,7 @@
     <PackageVersion Include="Microsoft.Extensions.AI.Evaluation.Quality" Version="10.5.0" />
     <PackageVersion Include="Microsoft.Extensions.AI.Evaluation.Reporting" Version="10.5.0" />
     <PackageVersion Include="Microsoft.Extensions.AI.OpenAI" Version="10.5.0" />
-    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.6" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.7" />
     <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.5.0" />
     <PackageVersion Include="Microsoft.SemanticKernel" Version="1.74.0" />
     <PackageVersion Include="Microsoft.SemanticKernel.Connectors.OpenAI" Version="1.74.0" />
@@ -21,8 +21,8 @@
     <PackageVersion Include="OpenTelemetry.Exporter.InMemory" Version="1.15.3" />
     <PackageVersion Include="Serilog" Version="4.3.1" />
     <PackageVersion Include="Serilog.AspNetCore" Version="10.0.0" />
-    <PackageVersion Include="Serilog.Extensions.Hosting" Version="10.0.0" />
-    <PackageVersion Include="Serilog.Extensions.Logging" Version="10.0.0" />
+    <PackageVersion Include="Serilog.Extensions.Hosting" Version="10.0.7" />
+    <PackageVersion Include="Serilog.Extensions.Logging" Version="10.0.7" />
     <PackageVersion Include="Serilog.Settings.Configuration" Version="10.0.1-dev-02339" />
     <PackageVersion Include="Serilog.Sinks.Console" Version="6.1.1" />
     <PackageVersion Include="Spectre.Console" Version="0.55.2" />
